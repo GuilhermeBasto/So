@@ -11,15 +11,13 @@ int main(){
         perror("Cannot open pipe for writing: ");
         exit(0);
     }
-    
+
     printf("Entrada:");
     while (1) {
           pthread_mutex_unlock(&mutexPipe);
           printf("[Cliente]-> ");
           fgets(buf,sizeof(buf), stdin);
-          //printf("%s\n",buf );
           write(fd, buf, sizeof(buf));
-          printf("Numero->%d\n",numero);
 
 
       }

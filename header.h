@@ -21,6 +21,7 @@
 
 #define MAX_BUF 1024
 #define PIPE_NAME "input_pipe"
+#define MQ 1
 
 
 typedef struct Config{
@@ -60,7 +61,9 @@ typedef struct Estatisticas{
 //Estrutra da MQ
 typedef struct Mymsg{
     long mtype;
-    Paciente paciente;
+    char *nome;
+    int temp_triagem;
+    int temp_atendimento;
 }Mymsg;
 
 
@@ -71,13 +74,11 @@ Config conf;
 int shmid;
 pthread_t *my_thread;
 int * id_threads;
-Mymsg *mynsg;
+Mymsg mymsg;
 int mq_id;
 int numero=0;
-
-
-sem_t* terminaDoutor;
 int fd;
+
 
 //thread_mutex para controlar a escrita da estatistica na memoria partilhada
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -86,7 +87,9 @@ pthread_mutex_t mutexPipe = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexMaxFila = PTHREAD_MUTEX_INITIALIZER;
 
 //Semafora para controlar quantos doutores ja acabaram o turno.
+sem_t* terminaDoutor;
 sem_t *doutoresFim;
 sem_t *Triagem;
+sem_t *Atendimento;
 void destroi_memoria_partilhada();
 void cria_pipe();

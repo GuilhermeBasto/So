@@ -54,7 +54,7 @@ void print_conf(Config *conf){
 
 void escreve_shm(){
   stats->n_pacientes_triados+=1;
-  stats->n_pacientes_atendidos+=1;
+
   stats->t_antes_triagem+=1;
   stats->t_entre_triagem_atendimento+=1;
   stats->tempo_total+=1;
@@ -77,11 +77,10 @@ void cleanup() {
 
   pthread_mutex_destroy(&mutexPipe);
   pthread_mutex_destroy(&mutex);
-  pthread_mutex_destroy(&mutexListaLigada);
-  pthread_mutex_destroy(&mutexMaxFila);
   destroi_memoria_partilhada();
   unlink(PIPE_NAME);
   close(fd);
+  msgctl(mq_id, IPC_RMID, NULL);
   free(id_threads);
   free(my_thread);
   destroi_lista(fila_espera);
@@ -128,16 +127,9 @@ void cria_pipe(){
     exit(0);
   }else
   printf("pipe criado\n");
-}
 
-void cria_mq(){
-  if(mq_id = msgget(IPC_PRIVATE,IPC_CREAT|0700)<0){
-    perror("Message Queue error");
-  }
-  else
-    printf("Message Queue criada\n");
-}
 
+}
 char *my_itoa(int num, char *str){
   if(str == NULL)
   return NULL;
@@ -254,6 +246,7 @@ void* le_pipe(void *N){
               inserir_fila(&p);
               numero++;
               sem_post(Triagem);
+              printf("Numero->%d\n",numero);
             }
             i++;
           printf("grupo de %d pessoas\n",pessoas);
@@ -271,56 +264,52 @@ void* le_pipe(void *N){
 }
 //Nesta função uma thread de cada vez (&mutexListaLigad vai ao primeiro elemento da lista e envia a estrutra para a MQ);
 void* triagem(void* A){
-    mymsg.nome=malloc(sizeof(char)*MAX_BUF);
     pthread_mutex_lock(&mutexListaLigada);
     Lista ptr=fila_espera;
     Lista aux=ptr;
+    mynsg.nome=malloc(sizeof(char)*MAX_BUF);
     while (1) {
       sem_wait(Triagem);
-
-       printf("----------TRIAGEM-------------\n");
+      printf("----------TRIAGEM-------------\n");
       if(aux){
         aux=aux->next;
-         printf("Paciente->%s\n",aux->paciente.nome);
-         strcpy(mymsg.nome,aux->paciente.nome);
-         mymsg.temp_triagem=aux->paciente.temp_triagem;
-         mymsg.temp_atendimento=aux->paciente.temp_atendimento;
-
-         sleep(2);
-         printf("sleep\n");
-         msgsnd(mq_id,&mymsg,sizeof(mymsg)-sizeof(long),0);
-         numero--;
-         sem_post(Atendimento);
-         }
-         printf("----------TRIAGEM_FIM-------------\n");
-         pthread_mutex_unlock(&mutexListaLigada);
-     }
+        printf("Paciente->%s\n",aux->paciente.nome);
+        strcpy(mynsg.nome,aux->paciente.nome);
+        mynsg.temp_triagem=aux->paciente.temp_triagem;
+        mynsg.temp_atendimento=aux->paciente.temp_atendimento;
+        msgsnd(mq_id,&mynsg,sizeof(mynsg)-sizeof(long),0);
+        numero--;
+        sem_post(Atemdimento);
+        pthread_mutex_unlock(&mutexListaLigada);
+        }
+        else
+            printf("lista vazia\n");
+        printf("----------TRIAGEM_FIM-------------\n");
+        pthread_mutex_unlock(&mutexListaLigada);
+    }
 }
 
 void trabalho_doc(int i){
-  //printf("vou comecar o trabalho\n");
-    sem_wait(Atendimento);
-    printf("------------------ATENDIMENTO-----------------\n");
-    pid_t pid = getpid();
-    msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), MQ, 0);
-    printf("--MQ--\n");
-    printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
-    printf("Doutor %d comecou a trabalhar\n",pid);
-    if(mymsg.temp_atendimento<=conf.dur_turnos){
-      sleep(conf.dur_turnos);
-    }
-    else{
-      sleep(mymsg.temp_atendimento);
-    }
+  pid_t pid=getpid();
+  sem_wait(Atemdimento);
+  printf("---------FILHO-----------------\n");
+  //mynsg.nome=malloc(sizeof(char)*MAX_BUF);
 
-    printf("Doutor %d acabou\n", pid);
-    pthread_mutex_lock(&mutex);
-    stats->tempo_total+=(mymsg.temp_atendimento+mymsg.temp_triagem);
-    stats->n_pacientes_atendidos++;
-    stats->id_doutores[i]=-1;
-    pthread_mutex_unlock(&mutex);
-    printf("------------------ATENDIMENTO_FIM-----------------\n");
-    sem_post(doutoresFim);
+
+  msgrcv(mq_id, &mynsg, sizeof(mynsg)-sizeof(long), MQ, 0);
+  printf("nome_atedimento ->%s\n",mynsg.nome);
+  printf("Doutor %d comecou a trabalhar\n",pid);
+  sleep(conf.dur_turnos);
+  printf("Doutor %d acabou\n", pid);
+  pthread_mutex_lock(&mutex);
+  stats->n_pacientes_atendidos+=1;
+  stats->tempo_total+=1;
+
+  stats->id_doutores[i]=-1;
+  sem_post(doutoresFim);
+  pthread_mutex_unlock(&mutex);
+  printf("---------FILHO_FIM-----------------\n");
+
 
   exit(0);
 }
@@ -333,14 +322,20 @@ void criar_doutores(){
       perror("fork");
       exit(1);
     }else if (id == 0) {
-      printf("----------filho-------------\n");
+      printf("-----------------------\n");
+      printf("filho\n");
       trabalho_doc(i);
     }
     else{
-      printf("----------pai-------------\n");
-
+      printf("-----------------------\n");
+      printf("pai\n");
       stats->id_doutores[i]=id;
+
+
+
+
     }
+    //printf("pid doutor %d - %d\n",i,id);
   }
 }
 
@@ -353,24 +348,28 @@ void* substituirDoutor (void *id){
     sem_wait(doutoresFim);
     for(a=0;a<conf.n_doutores;a++){
       if(stats->id_doutores[a]==-1){
-        printf("encontrei doutor morto\n");
+        //printf("encontrei doutor morto\n");
         if ((novo = fork()) < 0) {
           perror("fork");
           exit(1);
         }else if (novo == 0) {
-          printf("doutor novo\n");
+          //printf("doutor novo\n");
 
           trabalho_doc(a);
         }
         else{
           //printf("--->adicionei um doc\n");
           stats->id_doutores[a]=novo;
+
+
           break;
         }
       }
     }
+
   }
 }
+
 
 
 
@@ -403,16 +402,18 @@ void criar_threads(){
 void inicio(){
   cria_pipe();
   le_config(&conf);
-  cria_mq();
-  mymsg.mtype=MQ;
   fila_espera=cria_lista();
   criar_memoria_partilhada();
   sem_unlink("doutoresFim");
   doutoresFim=sem_open("doutoresFim",O_CREAT| O_EXCL,0777,0);
   sem_unlink("Triagem");
   Triagem=sem_open("Triagem",O_CREAT| O_EXCL,0777,0);
-  sem_unlink("Atendimento");
-  Atendimento=sem_open("Atendimento",O_CREAT| O_EXCL,0777,0);
+  sem_unlink("Atemdimento");
+  Atemdimento=sem_open("Atemdimento",O_CREAT| O_EXCL,0777,0);
+  sem_unlink("terminaDoutor");
+  terminaDoutor=sem_open("Atemdimento",O_CREAT| O_EXCL,0777,1);
+  assert((mq_id = msgget(IPC_PRIVATE,IPC_CREAT|0700))!=0);
+  mynsg.mtype=MQ;
 
   criar_doutores();
   criar_threads();
