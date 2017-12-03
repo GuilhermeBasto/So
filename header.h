@@ -34,7 +34,6 @@ typedef struct Config{
 
 typedef struct Paciente{
     char *nome;
-    //int n_pessoas;
     int n_chegada;
     int temp_triagem;
     int temp_atendimento;
@@ -87,7 +86,7 @@ pthread_mutex_t mutexPipe = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexMaxFila = PTHREAD_MUTEX_INITIALIZER;
 
 //Semafora para controlar quantos doutores ja acabaram o turno.
-sem_t* terminaDoutor;
+
 sem_t *doutoresFim;
 sem_t *Triagem;
 sem_t *Atendimento;
