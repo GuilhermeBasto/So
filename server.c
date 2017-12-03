@@ -344,14 +344,16 @@ void* triagem(void* A){
     pthread_mutex_lock(&mutexListaLigada);
     Lista ptr=fila_espera;
     while (1) {
-       printf("----------TRIAGEM-------------\n");
-        sem_wait(Triagem);
-        if(ptr!=NULL){
+      sem_wait(Triagem);
 
+       printf("----------TRIAGEM-------------\n");
+
+        if(ptr){
+          ptr=ptr->next;
           printf("Paciente%s\n",ptr->paciente.nome);
+          numero--;
           /*ptr=ptr->next;
           ptr->next=fila_espera->next;*/
-          ptr=ptr->next;
           pthread_mutex_unlock(&mutexListaLigada);
         }
         else
@@ -404,7 +406,7 @@ void inicio(){
   sem_unlink("doutoresFim");
   doutoresFim=sem_open("doutoresFim",O_CREAT| O_EXCL,0777,0);
   sem_unlink("Triagem");
-  Triagem=sem_open("Triagem",O_CREAT| O_EXCL,0777,1);
+  Triagem=sem_open("Triagem",O_CREAT| O_EXCL,0777,0);
   assert(mq_id = msgget(IPC_PRIVATE,IPC_CREAT|0700));
   criar_doutores();
   criar_threads();
