@@ -176,7 +176,7 @@ int inserir_fila(Paciente *p){
 }
 
 void imprime_fila(Lista aux){
-  aux=fila_espera;
+  aux=fila_espera->next;
   if(aux==NULL){
     printf("Nao ha pacientes em fila de espera!\n\n\n");
     return;
@@ -296,9 +296,10 @@ void* triagem(void* A){
       msgsnd(mq_id,&mymsg,sizeof(mymsg)-sizeof(long),0);
       numero--;
       sem_post(Atendimento);
+      aux=aux->next;
 
     }
-
+    //fila_espera=fila_espera->next;
 
     printf("----------TRIAGEM_FIM-------------\n");
     pthread_mutex_unlock(&mutexListaLigada);
