@@ -1,30 +1,6 @@
 #include "header.h"
 //gcc -o main main.c -lpthread
 
-
-Lista cria_lista(){
-  Lista aux;
-  aux=(Lista)malloc(sizeof(Lista_node));
-  while(aux==NULL){
-    printf("Erro na criacao da lista!\n");
-    return aux;
-  }
-  aux->next=NULL;
-
-  return aux;
-}
-
-Lista destroi_lista(Lista lista){
-  Lista aux;
-  while (lista->next!=NULL) {
-    aux=lista;
-    lista=lista->next;
-    free(aux);
-  }
-  free(lista);
-  return NULL;
-}
-
 void le_config(Config *conf){
   FILE *f;
   int aux[5];
@@ -145,8 +121,30 @@ char *my_itoa(int num, char *str){
   sprintf(str, "%d", num);
   return str;
 }
+Lista cria_lista(){
+  Lista aux;
+  aux=(Lista)malloc(sizeof(Lista_node));
+  while(aux==NULL){
+    printf("Erro na criacao da lista!\n");
+    return aux;
+  }
+  aux->next=NULL;
 
-int inserir_fila(Paciente *p){
+  return aux;
+}
+
+Lista destroi_lista(Lista lista){
+  Lista aux;
+  while (lista->next!=NULL) {
+    aux=lista;
+    lista=lista->next;
+    free(aux);
+  }
+  free(lista);
+  return NULL;
+}
+
+int inserir_fila(Paciente *p,Lista fila_espera){
   Lista lista,novo;
   lista=fila_espera;
   novo=(Lista)malloc(sizeof(Lista_node));
@@ -174,9 +172,9 @@ int inserir_fila(Paciente *p){
   }
   return 0;
 }
-
 void imprime_fila(Lista aux){
-  aux=fila_espera->next;
+  aux=fila_espera;
+  printf("---------------LISTA-------------\n");
   if(aux==NULL){
     printf("Nao ha pacientes em fila de espera!\n\n\n");
     return;
@@ -187,6 +185,7 @@ void imprime_fila(Lista aux){
       aux=aux->next;
     }
   }
+  printf("-------------LISTA_FIM-------------\n");
   printf("\n");
 
 }
@@ -204,7 +203,7 @@ void* le_pipe(void *N){
     perror("Cannot open pipe for writing: ");
     exit(0);
   }
-  pthread_mutex_lock(&mutexPipe);
+
   printf("Entrada:");
 
   while (1) {
@@ -214,12 +213,14 @@ void* le_pipe(void *N){
 
 
     FD_SET(fd,&read_set);
-    if( select(MAX_BUF, &read_set, NULL, NULL, NULL) > 0){
+    if( select(fd+1, &read_set, NULL, NULL, NULL) > 0){
       if(FD_ISSET(fd,&read_set)){
+
         if (numero<conf.max_fila) {
-          pthread_mutex_unlock(&mutexMaxFila);
+          pthread_mutex_lock(&mutexMaxFila);
 
           read(fd,buf,sizeof(buf));
+          printf("buf->%s\n",buf );
           nome=strtok(buf," ");
           if(isalpha(nome[0])){
             triagem=atoi(strtok(NULL, " "));
@@ -230,11 +231,11 @@ void* le_pipe(void *N){
             p.temp_atendimento=atendimento;
             p.prioridade=prioridade;
             p.n_chegada=i;
-            inserir_fila(&p);
+            inserir_fila(&p,fila_espera);
             numero++;
             sem_post(Triagem);
-            printf("Numero->%d\n",numero);
-            printf("paciente %s inserido com sucesso!\n",p.nome);
+            //printf("Numero->%d\n",numero);
+            //printf("paciente %s inserido com sucesso!\n",p.nome);
             i++;
           }
           else{
@@ -252,20 +253,21 @@ void* le_pipe(void *N){
               p.prioridade=prioridade;
               p.n_chegada=i;
               //printf("%s %d %d %d\n",p.nome,p.temp_triagem,p.temp_atendimento,p.prioridade );
-              inserir_fila(&p);
+              inserir_fila(&p,fila_espera);
               numero++;
               sem_post(Triagem);
             }
             i++;
-            printf("grupo de %d pessoas\n",pessoas);
+            //printf("grupo de %d pessoas\n",pessoas);
           }
         }else
         pthread_mutex_lock(&mutexMaxFila);
-        printf("---------------LISTA-------------\n");
         imprime_fila(fila_espera);
         close(fd);
         fd = open(PIPE_NAME,O_RDONLY|O_NONBLOCK);
-      }
+      }else
+        pthread_mutex_lock(&mutexPipe);
+
     }
 
   }
@@ -275,47 +277,49 @@ void* triagem(void* A){
 
   pthread_mutex_lock(&mutexListaLigada);
   Lista aux,next;
-  aux=fila_espera;
+  //Mymsg mymsg;
+
+
   while (1) {
 
     sem_wait(Triagem);
-
+    aux=fila_espera;
+    next = aux->next;
     printf("----------TRIAGEM-------------\n");
-    if(aux){
-      aux=aux->next;
+    if(next){
 
       mymsg.nome=malloc(sizeof(char)*MAX_BUF);
-      printf("Paciente->%s\n",aux->paciente.nome);
+      printf("Paciente->%s\n",next->paciente.nome);
 
-      strcpy(mymsg.nome,aux->paciente.nome);
+      strcpy(mymsg.nome,next->paciente.nome);
 
-      mymsg.temp_triagem=aux->paciente.temp_triagem;
-      mymsg.temp_atendimento=aux->paciente.temp_atendimento;
+      mymsg.temp_triagem=next->paciente.temp_triagem;
+      mymsg.temp_atendimento=next->paciente.temp_atendimento;
       printf("nome ->%s\n",mymsg.nome);
 
       msgsnd(mq_id,&mymsg,sizeof(mymsg)-sizeof(long),0);
       numero--;
-      sem_post(Atendimento);
-      aux=aux->next;
 
+      aux->next=next->next;
+      free(next);
     }
-    //fila_espera=fila_espera->next;
-
+    sem_post(Atendimento);
     printf("----------TRIAGEM_FIM-------------\n");
     pthread_mutex_unlock(&mutexListaLigada);
   }
 }
 
 void trabalho_doc(int i){
-  //printf("vou comecar o trabalho\n");
+  //Mymsg mymsg;
+  printf("vou comecar o trabalho\n");
   sem_wait(Atendimento);
+
 
   printf("------------------ATENDIMENTO-----------------\n");
   pid_t pid = getpid();
-  sleep(4);
   msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), MQ, 0);
-  printf("--MQ--\n");
   printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
+  printf("--MQ--\n");
   printf("Doutor %d comecou a trabalhar\n",pid);
   if(mymsg.temp_atendimento<=conf.dur_turnos){
     printf("Consulta de %d segundos\n",mymsg.temp_atendimento);
@@ -362,8 +366,8 @@ void* substituirDoutor (void *id){
   pid_t novo;
 
   while(1){
-    //printf("post doutor!!!\n");
     sem_wait(doutoresFim);
+    //printf("post doutor!!!\n");
     for(a=0;a<conf.n_doutores;a++){
       if(stats->id_doutores[a]==-1){
         //printf("encontrei doutor morto\n");
@@ -427,7 +431,7 @@ void inicio(){
 
   criar_doutores();
   criar_threads();
-  while (wait(NULL) != -1);
+  while (wait(NULL)!=-1);
 }
 
 int main(int argc, char const *argv[]){

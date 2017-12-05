@@ -21,7 +21,7 @@
 
 #define MAX_BUF 1024
 #define PIPE_NAME "input_pipe"
-#define MQ 1
+#define MQ 0
 
 
 typedef struct Config{
@@ -90,5 +90,6 @@ pthread_mutex_t mutexMaxFila = PTHREAD_MUTEX_INITIALIZER;
 sem_t *doutoresFim;
 sem_t *Triagem;
 sem_t *Atendimento;
+Lista destroi_lista(Lista lista);
 void destroi_memoria_partilhada();
 void cria_pipe();
