@@ -14,11 +14,13 @@ int main(){
 
     printf("Entrada:");
     while (1) {
+          do{
+          pthread_mutex_lock(&mutexPipe);
           printf("[Cliente]-> ");
-          pthread_mutex_unlock(&mutexPipe);
-          fgets(buf,sizeof(buf), stdin);
 
+          fgets(buf,sizeof(buf), stdin);
           write(fd, buf, sizeof(buf));
+        }while(sizeof(buf)>0);
 
 
       }

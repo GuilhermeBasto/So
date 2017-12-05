@@ -46,16 +46,20 @@ void cleanup() {
     wait(NULL);
     i++;
   }
-  //Elimina o semáforo
+  //Elimina semáforos
   sem_unlink("doutoresFim");
   sem_destroy(doutoresFim);
-  //Eliminar a memoria partilhada
-
+  sem_unlink("Triagem");
+  sem_destroy(Triagem);
+  sem_unlink("Atendimento");
+  sem_destroy(Atendimento);
+  //Elimina mutexs
   pthread_mutex_destroy(&mutexPipe);
   pthread_mutex_destroy(&mutex);
   pthread_mutex_destroy(&mutexListaLigada);
   pthread_mutex_destroy(&mutexMaxFila);
   destroi_memoria_partilhada();
+  //fechar pipe
   unlink(PIPE_NAME);
   close(fd);
   free(id_threads);
@@ -69,6 +73,17 @@ void termina(int sign){
   printf("\nTERMINA\n");
   cleanup();
   exit(0);
+}
+void print_stats(int sign){
+  pthread_mutex_lock(&mutex);
+  printf("\n--------ESTATISTICAS-----\n");
+	printf("NUMERO PACIENTES TRIADOS: %d\n",stats->n_pacientes_triados);
+	printf("NUMERO PACIENTES ATENDIDOS: %d\n",stats->n_pacientes_atendidos);
+	printf("TEMPO ANTES DE TRIAGEM: %d\n",stats->t_antes_triagem);
+	printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO: %d\n",stats->t_entre_triagem_atendimento);
+  printf("TEMPO TOTAL: %d\n",stats->tempo_total);
+	printf("--------------FIM---------------\n\n");
+  pthread_mutex_unlock(&mutex);
 }
 
 void criar_memoria_partilhada(){
@@ -214,10 +229,11 @@ void* le_pipe(void *N){
 
     FD_SET(fd,&read_set);
     if( select(fd+1, &read_set, NULL, NULL, NULL) > 0){
+
       if(FD_ISSET(fd,&read_set)){
 
         if (numero<conf.max_fila) {
-          pthread_mutex_lock(&mutexMaxFila);
+          pthread_mutex_unlock(&mutexMaxFila);
 
           read(fd,buf,sizeof(buf));
           printf("buf->%s\n",buf );
@@ -416,6 +432,8 @@ void criar_threads(){
 }
 
 void inicio(){
+  signal(SIGINT,termina);
+  signal(SIGUSR1,print_stats);
   cria_pipe();
   le_config(&conf);
   cria_mq();
@@ -435,8 +453,6 @@ void inicio(){
 }
 
 int main(int argc, char const *argv[]){
-
-  signal(SIGINT,termina);
   inicio();
 
 }
