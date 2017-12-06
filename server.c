@@ -46,6 +46,8 @@ void cleanup() {
     wait(NULL);
     i++;
   }
+  //elimina
+  msgctl(mq_id, IPC_RMID, NULL);
   //Elimina semáforos
   sem_unlink("doutoresFim");
   sem_destroy(doutoresFim);
@@ -122,11 +124,12 @@ void cria_pipe(){
 }
 
 void cria_mq(){
-  if(mq_id = msgget(IPC_PRIVATE,IPC_CREAT|0700)<0){
+  if((mq_id = msgget(IPC_PRIVATE,IPC_CREAT|0700))<0){
     perror("Message Queue error");
   }
   else
   printf("Message Queue criada\n");
+  printf("is mq depois de criar%d\n",mq_id );
 }
 
 char *my_itoa(int num, char *str){
@@ -188,7 +191,7 @@ int inserir_fila(Paciente *p,Lista fila_espera){
   return 0;
 }
 void imprime_fila(Lista aux){
-  aux=fila_espera;
+  aux=fila_espera->next;
   printf("---------------LISTA-------------\n");
   if(aux==NULL){
     printf("Nao ha pacientes em fila de espera!\n\n\n");
@@ -239,6 +242,7 @@ void* le_pipe(void *N){
           printf("buf->%s\n",buf );
           nome=strtok(buf," ");
           if(isalpha(nome[0])){
+
             triagem=atoi(strtok(NULL, " "));
             atendimento=atoi(strtok(NULL, " "));
             prioridade=atoi(strtok(NULL, "\n"));
@@ -293,6 +297,7 @@ void* triagem(void* A){
 
   pthread_mutex_lock(&mutexListaLigada);
   Lista aux,next;
+
   //Mymsg mymsg;
 
 
@@ -304,38 +309,46 @@ void* triagem(void* A){
     printf("----------TRIAGEM-------------\n");
     if(next){
 
-      mymsg.nome=malloc(sizeof(char)*MAX_BUF);
       printf("Paciente->%s\n",next->paciente.nome);
 
-      strcpy(mymsg.nome,next->paciente.nome);
 
+      //printf("recebe->%s\n",mymsg.paciente.nome);
+      mymsg.mtype=5;
+      strcpy(mymsg.nome,next->paciente.nome);
       mymsg.temp_triagem=next->paciente.temp_triagem;
       mymsg.temp_atendimento=next->paciente.temp_atendimento;
       printf("nome ->%s\n",mymsg.nome);
+      //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
+      printf("recebe->%s\n",mymsg.nome);
+      msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
+      printf("meio\n" );
 
-      msgsnd(mq_id,&mymsg,sizeof(mymsg)-sizeof(long),0);
+      //printf("Paciente-> %s %d %d\n",mymsg.paciente.nome,mymsg.paciente.temp_triagem,mymsg.paciente.temp_atendimento);
+
       numero--;
-
       aux->next=next->next;
       free(next);
+      sem_post(Atendimento);
+
     }
-    sem_post(Atendimento);
+    printf("post\n");
     printf("----------TRIAGEM_FIM-------------\n");
     pthread_mutex_unlock(&mutexListaLigada);
   }
 }
 
 void trabalho_doc(int i){
-  //Mymsg mymsg;
-  printf("vou comecar o trabalho\n");
+  //printf("vou comecar o trabalho\n");
   sem_wait(Atendimento);
 
 
   printf("------------------ATENDIMENTO-----------------\n");
   pid_t pid = getpid();
-  msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), MQ, 0);
-  printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
+  printf("antes MQ\n" );
+  msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), 0, 0);
+  //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
   printf("--MQ--\n");
+  printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
   printf("Doutor %d comecou a trabalhar\n",pid);
   if(mymsg.temp_atendimento<=conf.dur_turnos){
     printf("Consulta de %d segundos\n",mymsg.temp_atendimento);
@@ -437,7 +450,7 @@ void inicio(){
   cria_pipe();
   le_config(&conf);
   cria_mq();
-  mymsg.mtype=MQ;
+
   fila_espera=cria_lista();
   criar_memoria_partilhada();
   sem_unlink("doutoresFim");

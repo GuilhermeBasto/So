@@ -21,7 +21,7 @@
 
 #define MAX_BUF 1024
 #define PIPE_NAME "input_pipe"
-#define MQ 0
+#define MQ -3
 
 
 typedef struct Config{
@@ -39,6 +39,7 @@ typedef struct Paciente{
     int temp_atendimento;
     int prioridade;
 }Paciente;
+
 
 
 //lista ligada para servir de fila de espera
@@ -60,11 +61,15 @@ typedef struct Estatisticas{
 //Estrutra da MQ
 typedef struct Mymsg{
     long mtype;
-    char *nome;
-    int temp_triagem;
-    int temp_atendimento;
+    char nome[MAX_BUF];
+    int temp_triagem,temp_atendimento;
 }Mymsg;
 
+
+typedef struct M{
+    long mtype;
+    int i;
+}M;
 
 Paciente p;
 Lista fila_espera;
@@ -74,6 +79,7 @@ int shmid;
 pthread_t *my_thread;
 int * id_threads;
 Mymsg mymsg;
+M m;
 int mq_id;
 int numero=0;
 int fd;
@@ -86,6 +92,7 @@ pthread_mutex_t mutexPipe = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexMaxFila = PTHREAD_MUTEX_INITIALIZER;
 
 //Semafora para controlar quantos doutores ja acabaram o turno.
+//struct msqid_ds buf
 
 sem_t *doutoresFim;
 sem_t *Triagem;
