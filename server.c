@@ -56,10 +56,9 @@ void cleanup() {
   sem_unlink("Atendimento");
   sem_destroy(Atendimento);
   //Elimina mutexs
-  pthread_mutex_destroy(&mutexPipe);
+
   pthread_mutex_destroy(&mutex);
   pthread_mutex_destroy(&mutexListaLigada);
-  pthread_mutex_destroy(&mutexMaxFila);
   destroi_memoria_partilhada();
   //fechar pipe
   unlink(PIPE_NAME);
@@ -210,9 +209,10 @@ void imprime_fila(Lista aux){
 
 void* le_pipe(void *N){
   int i=1;
+  int nova_thread;
   char buf[MAX_BUF];
   int triagem,atendimento,prioridade,pessoas;
-  char *nome,*n;
+  char *nome,*n,*aux;
   fd_set read_set;
   FD_ZERO(&read_set);
 
@@ -226,6 +226,7 @@ void* le_pipe(void *N){
 
   while (1) {
     nome=(char *)malloc(sizeof(char)*MAX_BUF);
+    aux=(char *)malloc(sizeof(char)*MAX_BUF);
     p.nome=(char*)malloc(sizeof(char)*MAX_BUF);
     n=(char *)malloc(sizeof(char)*5);
 
@@ -234,29 +235,31 @@ void* le_pipe(void *N){
     if( select(fd+1, &read_set, NULL, NULL, NULL) > 0){
 
       if(FD_ISSET(fd,&read_set)){
-
-        if (numero<conf.max_fila) {
-          pthread_mutex_unlock(&mutexMaxFila);
-
           read(fd,buf,sizeof(buf));
           printf("buf->%s\n",buf );
-          nome=strtok(buf," ");
-          if(isalpha(nome[0])){
+          aux=strtok(buf,"\n");
+          if(isalpha(aux[0])){
+            if (strcmp(strtok(aux,"="),"TRIAGE")!=0){
+              nome=strtok(buf," ");
+              triagem=atoi(strtok(NULL, " "));
+              atendimento=atoi(strtok(NULL, " "));
+              prioridade=atoi(strtok(NULL, "\n"));
+              strcpy(p.nome,nome);
+              p.temp_triagem=triagem;
+              p.temp_atendimento=atendimento;
+              p.prioridade=prioridade;
+              p.n_chegada=i;
+              inserir_fila(&p,fila_espera);
+              sem_post(Triagem);
+              //printf("Numero->%d\n",numero);
+              //printf("paciente %s inserido com sucesso!\n",p.nome);
+              i++;
+            }else{
+              printf("altera threads\n");
+              nova_thread=atoi(strtok(NULL,"\n"));
+              printf("threads -> %d\n",nova_thread );
 
-            triagem=atoi(strtok(NULL, " "));
-            atendimento=atoi(strtok(NULL, " "));
-            prioridade=atoi(strtok(NULL, "\n"));
-            strcpy(p.nome,nome);
-            p.temp_triagem=triagem;
-            p.temp_atendimento=atendimento;
-            p.prioridade=prioridade;
-            p.n_chegada=i;
-            inserir_fila(&p,fila_espera);
-            numero++;
-            sem_post(Triagem);
-            //printf("Numero->%d\n",numero);
-            //printf("paciente %s inserido com sucesso!\n",p.nome);
-            i++;
+            }
           }
           else{
             pessoas=atoi(nome);
@@ -274,23 +277,31 @@ void* le_pipe(void *N){
               p.n_chegada=i;
               //printf("%s %d %d %d\n",p.nome,p.temp_triagem,p.temp_atendimento,p.prioridade );
               inserir_fila(&p,fila_espera);
-              numero++;
               sem_post(Triagem);
             }
             i++;
-            //printf("grupo de %d pessoas\n",pessoas);
+            printf("grupo de %d pessoas\n",pessoas);
           }
         }else
-        pthread_mutex_lock(&mutexMaxFila);
         imprime_fila(fila_espera);
         close(fd);
         fd = open(PIPE_NAME,O_RDONLY|O_NONBLOCK);
-      }else
-        pthread_mutex_lock(&mutexPipe);
-
     }
-
   }
+}
+void ver_MQ(){
+  int msq;
+  pid_t id;
+  msgqnum_t num_msg;
+  int aux=conf.max_fila;
+  msq=msgctl(mq_id,IPC_STAT,buf);
+  num_msg=buf->msg_qnum;
+  printf("%d\n", );
+  if (((int)num_msg) >= (aux*0.8)){
+    id=fork();
+    stats->id_doutores[conf.n_doutores]=id;
+  }
+
 }
 //Nesta função uma thread de cada vez (&mutexListaLigad vai ao primeiro elemento da lista e envia a estrutra para a MQ);
 void* triagem(void* A){
@@ -321,17 +332,14 @@ void* triagem(void* A){
       //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
       printf("recebe->%s\n",mymsg.nome);
       msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
-      printf("meio\n" );
-
+      ver_MQ();
       //printf("Paciente-> %s %d %d\n",mymsg.paciente.nome,mymsg.paciente.temp_triagem,mymsg.paciente.temp_atendimento);
-
-      numero--;
       aux->next=next->next;
       free(next);
       sem_post(Atendimento);
 
     }
-    printf("post\n");
+
     printf("----------TRIAGEM_FIM-------------\n");
     pthread_mutex_unlock(&mutexListaLigada);
   }

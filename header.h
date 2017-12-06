@@ -66,11 +66,6 @@ typedef struct Mymsg{
 }Mymsg;
 
 
-typedef struct M{
-    long mtype;
-    int i;
-}M;
-
 Paciente p;
 Lista fila_espera;
 Estatisticas *stats;
@@ -79,17 +74,14 @@ int shmid;
 pthread_t *my_thread;
 int * id_threads;
 Mymsg mymsg;
-M m;
 int mq_id;
-int numero=0;
 int fd;
+struct msqid_ds *buf;
 
 
 //thread_mutex para controlar a escrita da estatistica na memoria partilhada
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexListaLigada = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutexPipe = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutexMaxFila = PTHREAD_MUTEX_INITIALIZER;
 
 //Semafora para controlar quantos doutores ja acabaram o turno.
 //struct msqid_ds buf
