@@ -55,7 +55,8 @@ typedef struct Estatisticas{
     int t_antes_triagem;
     int t_entre_triagem_atendimento;
     int tempo_total;
-    pid_t id_doutores[10];
+    int teste;
+    pid_t id_doutores[20];
 }Estatisticas;
 
 //Estrutra da MQ
@@ -76,7 +77,7 @@ int * id_threads;
 Mymsg mymsg;
 int mq_id;
 int fd;
-struct msqid_ds *buf;
+struct msqid_ds buf;
 
 
 //thread_mutex para controlar a escrita da estatistica na memoria partilhada
@@ -92,3 +93,4 @@ sem_t *Atendimento;
 Lista destroi_lista(Lista lista);
 void destroi_memoria_partilhada();
 void cria_pipe();
+void* triagem(void* A);

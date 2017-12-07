@@ -47,7 +47,7 @@ void cleanup() {
     i++;
   }
   //elimina
-  msgctl(mq_id, IPC_RMID, NULL);
+  msgctl(mq_id, IPC_RMID, 0);
   //Elimina semáforos
   sem_unlink("doutoresFim");
   sem_destroy(doutoresFim);
@@ -99,6 +99,7 @@ void criar_memoria_partilhada(){
   stats->t_antes_triagem=0;
   stats->t_entre_triagem_atendimento=0;
   stats->tempo_total=0;
+  stats->teste=0;
 }
 void destroi_memoria_partilhada(){
 
@@ -211,7 +212,7 @@ void* le_pipe(void *N){
   int i=1;
   int nova_thread;
   char buf[MAX_BUF];
-  int triagem,atendimento,prioridade,pessoas;
+  int triage,atendimento,prioridade,pessoas;
   char *nome,*n,*aux;
   fd_set read_set;
   FD_ZERO(&read_set);
@@ -241,11 +242,11 @@ void* le_pipe(void *N){
           if(isalpha(aux[0])){
             if (strcmp(strtok(aux,"="),"TRIAGE")!=0){
               nome=strtok(buf," ");
-              triagem=atoi(strtok(NULL, " "));
+              triage=atoi(strtok(NULL, " "));
               atendimento=atoi(strtok(NULL, " "));
               prioridade=atoi(strtok(NULL, "\n"));
               strcpy(p.nome,nome);
-              p.temp_triagem=triagem;
+              p.temp_triagem=triage;
               p.temp_atendimento=atendimento;
               p.prioridade=prioridade;
               p.n_chegada=i;
@@ -258,12 +259,32 @@ void* le_pipe(void *N){
               printf("altera threads\n");
               nova_thread=atoi(strtok(NULL,"\n"));
               printf("threads -> %d\n",nova_thread );
+              if(nova_thread<conf.triagem){
+                id_threads=realloc(id_threads,(nova_thread+2));
+                my_thread=realloc(my_thread,(nova_thread+2));
+                for (int x=conf.triagem+2+nova_thread;x>nova_thread+2;x--){
+                    pthread_cancel(my_thread[x]);
+                  }
+              }
+              else{
+                printf("aqui\n");
+                id_threads=realloc(id_threads,(nova_thread+2));
+                my_thread=realloc(my_thread,(nova_thread+2));
+                for (int x=conf.triagem+2;x<nova_thread+2;x++){
+                  if(pthread_create(&my_thread[x],NULL,triagem,&id_threads[x])!=0){
+                    printf("cria triage\n" );
+                    perror ("pthread_create error");
+                  }
+                }
 
             }
           }
+          }
           else{
+            printf("aqui\n" );
+            nome=strtok(buf," ");
             pessoas=atoi(nome);
-            triagem=atoi(strtok(NULL, " "));
+            triage=atoi(strtok(NULL, " "));
             atendimento=atoi(strtok(NULL, " "));
             prioridade=atoi(strtok(NULL, "\n"));
             for(int c=0;c<pessoas;c++){
@@ -271,7 +292,7 @@ void* le_pipe(void *N){
               n=my_itoa(i,n);
               strcat(nome,n);
               strcpy(p.nome,nome);
-              p.temp_triagem=triagem;
+              p.temp_triagem=triage;
               p.temp_atendimento=atendimento;
               p.prioridade=prioridade;
               p.n_chegada=i;
@@ -292,16 +313,52 @@ void* le_pipe(void *N){
 void ver_MQ(){
   int msq;
   pid_t id;
-  msgqnum_t num_msg;
+
+
+  int num_msg;
   int aux=conf.max_fila;
-  msq=msgctl(mq_id,IPC_STAT,buf);
-  num_msg=buf->msg_qnum;
-  printf("%d\n", );
-  if (((int)num_msg) >= (aux*0.8)){
+  printf("COMFIG%d\n",aux );
+
+  msq= msgctl(mq_id, IPC_STAT, &buf);
+  num_msg = buf.msg_qnum;
+  printf("NUMERO MSG ->%d\n",num_msg );
+  printf("COND ->%.0f\n",((float)aux*(float)0.8) );
+  int conta=(float)aux*(float)0.8;
+  printf("Conta%d\n",conta );
+  if ((num_msg >= conta) && stats->teste < 1){
     id=fork();
+    printf("PID NOVO \n");
     stats->id_doutores[conf.n_doutores]=id;
+    stats->teste++;
+  }
+  if (stats->teste == 1 && num_msg<conta){
+      printf("MATAR A MAIS\n" );
+      waitpid(stats->id_doutores[conf.n_doutores],NULL,-2);
+        stats->teste--;
+  }
+  else{
+    printf("Não é perciso nada!!!\n" );
   }
 
+}
+void delete(){
+    int msq;
+    pid_t id;
+    int num_msg;
+    int aux=conf.max_fila;
+    msq= msgctl(mq_id, IPC_STAT, &buf);
+    num_msg = buf.msg_qnum;
+    printf("NUMERO MSG ->%d\n",num_msg );
+    int conta=(float)aux*(float)0.8;
+    printf("Conta%d\n",conta );
+    printf("TESTE STATS%d\n",stats->teste );
+    if (num_msg<=conta){
+        if(stats->teste>0){
+          printf("MATAR A MAIS\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n" );
+          waitpid(stats->id_doutores[conf.n_doutores],NULL,-2);
+          stats->teste--;
+      }
+    }
 }
 //Nesta função uma thread de cada vez (&mutexListaLigad vai ao primeiro elemento da lista e envia a estrutra para a MQ);
 void* triagem(void* A){
@@ -354,6 +411,7 @@ void trabalho_doc(int i){
   pid_t pid = getpid();
   printf("antes MQ\n" );
   msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), 0, 0);
+  delete();
   //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
   printf("--MQ--\n");
   printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
@@ -371,8 +429,10 @@ void trabalho_doc(int i){
   stats->tempo_total+=(mymsg.temp_atendimento+mymsg.temp_triagem);
   stats->n_pacientes_atendidos++;
   stats->id_doutores[i]=-1;
+
   pthread_mutex_unlock(&mutex);
-  sem_post(doutoresFim);
+    sem_post(doutoresFim);
+
   printf("------------------ATENDIMENTO_FIM-----------------\n");
 
 
@@ -404,15 +464,17 @@ void* substituirDoutor (void *id){
 
   while(1){
     sem_wait(doutoresFim);
-    //printf("post doutor!!!\n");
+    //printf("post doutor!!!\n");pthread_create(&my_thread[0],NULL,le_pipe,&id_threads[0])!=0){
+
+
     for(a=0;a<conf.n_doutores;a++){
       if(stats->id_doutores[a]==-1){
-        //printf("encontrei doutor morto\n");
+        printf("encontrei doutor morto\n");
         if ((novo = fork()) < 0) {
           perror("fork");
           exit(1);
         }else if (novo == 0) {
-          //printf("doutor novo\n");
+          printf("doutor novo\n");
 
           trabalho_doc(a);
         }
@@ -428,18 +490,21 @@ void* substituirDoutor (void *id){
 
 
 
-void criar_threads(){
 
+void criar_threads(){
+  printf("criar threads\n");
 
   int i=0;
   my_thread = (pthread_t*)malloc((conf.triagem+2)*sizeof(pthread_t));
   id_threads = malloc(sizeof(int)*conf.triagem+2);
   //cria thread para estar a espera do pipe
   if(pthread_create(&my_thread[0],NULL,le_pipe,&id_threads[0])!=0){
+    printf("aqui\n" );
     perror ("pthread_create error");
   }
   //criar a thread responsavel por criar novos doutores quando uns acabam
   if(pthread_create(&my_thread[1],NULL,substituirDoutor,&id_threads[0])!=0){
+    printf("aqui2\n" );
     perror ("pthread_create error");
   }
   id_threads[1]=0;
