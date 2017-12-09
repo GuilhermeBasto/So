@@ -39,6 +39,7 @@ void escreve_shm(){
 
 void cleanup() {
   int i=0;
+
   for(int i=0;i<conf.triagem+2;i++){
     pthread_cancel(my_thread[i]);
   }
@@ -80,9 +81,9 @@ void print_stats(int sign){
   printf("\n--------ESTATISTICAS-----\n");
 	printf("NUMERO PACIENTES TRIADOS: %d\n",stats->n_pacientes_triados);
 	printf("NUMERO PACIENTES ATENDIDOS: %d\n",stats->n_pacientes_atendidos);
-	printf("TEMPO ANTES DE TRIAGEM: %d\n",stats->t_antes_triagem);
-	printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO: %d\n",stats->t_entre_triagem_atendimento);
-  printf("TEMPO TOTAL: %d\n",stats->tempo_total);
+	printf("TEMPO ANTES DE TRIAGEM: %lf\n",stats->t_antes_triagem);
+	printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO: %lf\n",stats->t_entre_triagem_atendimento);
+  printf("TEMPO TOTAL: %lf\n",stats->tempo_total);
 	printf("--------------FIM---------------\n\n");
   pthread_mutex_unlock(&stats->mutex);
 }
@@ -235,7 +236,9 @@ void* le_pipe(void *N){
     if( select(fd+1, &read_set, NULL, NULL, NULL) > 0){
 
       if(FD_ISSET(fd,&read_set)){
+
           read(fd,buf,sizeof(buf));
+          start=clock();
           aux=strtok(buf,"\n");
           if(isalpha(aux[0])){
             if (strcmp(strtok(aux,"="),"TRIAGE")!=0){
@@ -355,28 +358,40 @@ void* triagem(void* id){
   pthread_mutex_lock(&mutexListaLigada);
   Lista aux,next;
 
+
   //Mymsg mymsg;
 
 
   while (1) {
 
     sem_wait(Triagem);
-    printf("ID THREAD->%d\n",id_threads[*i]);
+    end=clock();
+    antes_triagem=((double) (end - start)) / CLOCKS_PER_SEC;
+
+    //printf("TEMPO ANTES DE TRIAGEM! -> %lf",antes_triagem);
+    //printf("ID THREAD->%d\n",id_threads[*i]);
     aux=fila_espera;
     next = aux->next;
     printf("----------TRIAGEM-------------\n");
     if(next){
-      mymsg.mtype=5;
+
+      mymsg.mtype=next->paciente.prioridade;
       strcpy(mymsg.nome,next->paciente.nome);
       mymsg.temp_triagem=next->paciente.temp_triagem;
       mymsg.temp_atendimento=next->paciente.temp_atendimento;
-
-      //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
+      mymsg.antes_triagem=antes_triagem;
+      pthread_mutex_lock(&stats->mutex);
+      stats->n_pacientes_triados++;
+      stats->t_antes_triagem=antes_triagem;
+      pthread_mutex_unlock(&stats->mutex);
+      //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0)
       msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
       ver_MQ();
       //printf("Paciente-> %s %d %d\n",mymsg.paciente.nome,mymsg.paciente.temp_triagem,mymsg.paciente.temp_atendimento);
       aux->next=next->next;
       free(next);
+
+      //printf("total-> %lf\n",total );
       sem_post(Atendimento);
 
     }
@@ -389,12 +404,20 @@ void* triagem(void* id){
 void trabalho_doc(int i){
   //printf("vou comecar o trabalho\n");
   sem_wait(Atendimento);
+  start=clock();
 
 
   printf("------------------ATENDIMENTO-----------------\n");
   pid_t pid = getpid();
-  msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), 0, 0);
+
+
+  msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), -3, 0);
+
   delete();
+  end=clock();
+  entre_triagem_atendimento=((double) (end - start)) / CLOCKS_PER_SEC;
+  printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO ->%lf\n",entre_triagem_atendimento);
+
   //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
   printf("--MQ--\n");
   printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
@@ -409,11 +432,13 @@ void trabalho_doc(int i){
   }
   printf("Doutor %d acabou\n", pid);
   pthread_mutex_lock(&stats->mutex);
-  stats->tempo_total+=(mymsg.temp_atendimento+mymsg.temp_triagem);
+  stats->tempo_total+=(mymsg.temp_atendimento+mymsg.temp_triagem+mymsg.antes_triagem+entre_triagem_atendimento);
   stats->n_pacientes_atendidos++;
+  stats->t_entre_triagem_atendimento=entre_triagem_atendimento;
   stats->id_doutores[i]=-1;
 
   pthread_mutex_unlock(&stats->mutex);
+  kill(pid,SIGUSR1);
   sem_post(doutoresFim);
 
   printf("------------------ATENDIMENTO_FIM-----------------\n");
@@ -527,5 +552,5 @@ void inicio(){
 
 int main(int argc, char const *argv[]){
   inicio();
-
+  cleanup();
 }

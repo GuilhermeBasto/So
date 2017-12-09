@@ -18,10 +18,11 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <assert.h>
+#include <sys/mman.h>
 
 #define MAX_BUF 1024
 #define PIPE_NAME "input_pipe"
-#define MQ -3
+#define	FILE_MODE	(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
 
 typedef struct Config{
@@ -38,6 +39,7 @@ typedef struct Paciente{
     int temp_triagem;
     int temp_atendimento;
     int prioridade;
+
 }Paciente;
 
 
@@ -52,9 +54,9 @@ typedef struct lnode{
 typedef struct Estatisticas{
     int n_pacientes_triados;
     int n_pacientes_atendidos;
-    int t_antes_triagem;
-    int t_entre_triagem_atendimento;
-    int tempo_total;
+    double t_antes_triagem;
+    double t_entre_triagem_atendimento;
+    double tempo_total;
     int teste;
     pid_t id_doutores[20];
     pthread_mutex_t mutex;
@@ -66,6 +68,7 @@ typedef struct Mymsg{
     long mtype;
     char nome[MAX_BUF];
     int temp_triagem,temp_atendimento;
+    double antes_triagem;
 }Mymsg;
 
 
@@ -76,11 +79,17 @@ Config conf;
 int shmid;
 pthread_t *my_thread;
 int * id_threads;
-Mymsg mymsg;
+Mymsg mymsg;Paciente p;
+Lista fila_espera;
+Estatisticas *stats;
+Config conf;
+int shmid;
+pthread_t *my_thread;
 int mq_id;
 int fd;
 struct msqid_ds buf;
-
+clock_t start,end;
+double antes_triagem,entre_triagem_atendimento;
 
 //thread_mutex para controlar a escrita da estatistica na memoria partilhada
 pthread_mutex_t mutexListaLigada = PTHREAD_MUTEX_INITIALIZER;
