@@ -1,10 +1,12 @@
 #include "header.h"
 //gcc -o main main.c -lpthread
+void print_conf(Config *conf){
+  printf("Numero de threads: %d\nNumero de processos: %d\nDuracao de cada processo: %d\nTamanho maximo da fila de espera: %d \n",conf->triagem,conf->n_doutores,conf->dur_turnos,conf->max_fila );
+}
 
 void le_config(Config *conf){
   FILE *f;
   int aux[5];
-  char *lixo;
   char str[100];
 
   f=fopen("config.txt","r");
@@ -14,27 +16,13 @@ void le_config(Config *conf){
   }
   for (int i=0;i<4;i++){
     fgets(str,100,f);
-    lixo=strtok(str, "=");
+    strtok(str, "=");
     aux[i]=atoi(strtok(NULL, "\n"));
   }
   conf->triagem=aux[0];
   conf->n_doutores=aux[1];
   conf->dur_turnos=aux[2];
   conf->max_fila=aux[3];
-}
-
-void print_conf(Config *conf){
-  printf("Numero de threads: %d\nNumero de processos: %d\nDuracao de cada processo: %d\nTamanho maximo da fila de espera: %d \n",conf->triagem,conf->n_doutores,conf->dur_turnos,conf->max_fila );
-}
-
-
-void escreve_shm(){
-  stats->n_pacientes_triados+=1;
-  stats->n_pacientes_atendidos+=1;
-  stats->t_antes_triagem+=1;
-  stats->t_entre_triagem_atendimento+=1;
-  stats->tempo_total+=1;
-  //   printf("escrito na shm\n");
 }
 
 void cleanup() {
@@ -264,6 +252,10 @@ void* le_pipe(void *N){
                 my_thread=realloc(my_thread,(nova_thread+2));
                 if(nova_thread!=1){
                 for (int x=(conf.triagem+nova_thread+2);x>=nova_thread+2;x--){
+                  /* escrever fim das threads de TRIAGEM
+
+                  sprintf(towrite,"Thread %d acabou \n",id_threads[x]);
+                  */
                     pthread_cancel(my_thread[x]);
                   }
                 }
@@ -272,6 +264,11 @@ void* le_pipe(void *N){
                 id_threads=realloc(id_threads,(nova_thread+2));
                 my_thread=realloc(my_thread,(nova_thread+2));
                 for (int x=conf.triagem+2;x<nova_thread+2;x++){
+
+                    /* escrever inicio das threads de TRIAGEM
+
+                    sprintf(towrite,"Thread %d começou \n",id_threads[x]);
+                    */
                   if(pthread_create(&my_thread[x],NULL,triagem,&id_threads[x])!=0){
                     perror ("pthread_create error");
                   }
@@ -311,14 +308,14 @@ void* le_pipe(void *N){
   }
 }
 void ver_MQ(){
-  int msq;
   pid_t id;
-
-
+  int msq;
   int num_msg;
   int aux=conf.max_fila;
 
-  msq= msgctl(mq_id, IPC_STAT, &buf);
+  if((msq = msgctl(mq_id, IPC_STAT, &buf))<0){
+    perror("Error msgctl");
+  }
   num_msg = buf.msg_qnum;
   printf("NUMERO MSG ->%d\n",num_msg );
   int conta=(float)aux*(float)0.8;
@@ -334,17 +331,18 @@ void ver_MQ(){
 }
 void delete(){
     int msq;
-    pid_t id;
     int num_msg;
     int aux=conf.max_fila;
-    msq= msgctl(mq_id, IPC_STAT, &buf);
+    if((msq = msgctl(mq_id, IPC_STAT, &buf))<0){
+      perror("Error msgctl");
+    }
     num_msg = buf.msg_qnum;
     printf("NUMERO MSG ->%d\n",num_msg );
     int conta=(float)aux*(float)0.8;
     if (num_msg<=conta){
         if(stats->teste>0){
           pthread_mutex_lock(&stats->mutex);
-          printf("Matar Doutor [%d] Extra  \n",getpid());
+          printf("Matar Doutor Extra\n");
           waitpid(stats->id_doutores[conf.n_doutores],NULL,0);
           stats->teste--;
           pthread_mutex_unlock(&stats->mutex);
@@ -353,7 +351,7 @@ void delete(){
 }
 //Nesta função uma thread de cada vez (&mutexListaLigad vai ao primeiro elemento da lista e envia a estrutra para a MQ);
 void* triagem(void* id){
-  int* i=(int*) id;
+  //(int*) id;
 
   pthread_mutex_lock(&mutexListaLigada);
   Lista aux,next;
@@ -369,7 +367,7 @@ void* triagem(void* id){
     antes_triagem=((double) (end - start)) / CLOCKS_PER_SEC;
 
     //printf("TEMPO ANTES DE TRIAGEM! -> %lf",antes_triagem);
-    //printf("ID THREAD->%d\n",id_threads[*i]);
+    //printf("ID THREAD->%d\n",id_threads[*id]);
     aux=fila_espera;
     next = aux->next;
     printf("----------TRIAGEM-------------\n");
@@ -384,14 +382,14 @@ void* triagem(void* id){
       stats->n_pacientes_triados++;
       stats->t_antes_triagem=antes_triagem;
       pthread_mutex_unlock(&stats->mutex);
-      //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0)
+      /* escrever os pacinete triados
+      sprintf(towrite,"Paciente  %s Triado\n",mymsg.nome);
+      */
       msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
       ver_MQ();
-      //printf("Paciente-> %s %d %d\n",mymsg.paciente.nome,mymsg.paciente.temp_triagem,mymsg.paciente.temp_atendimento);
       aux->next=next->next;
       free(next);
 
-      //printf("total-> %lf\n",total );
       sem_post(Atendimento);
 
     }
@@ -410,13 +408,11 @@ void trabalho_doc(int i){
   printf("------------------ATENDIMENTO-----------------\n");
   pid_t pid = getpid();
 
-
-  msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), -3, 0);
-
   delete();
+  msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), -3, 0);
   end=clock();
   entre_triagem_atendimento=((double) (end - start)) / CLOCKS_PER_SEC;
-  printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO ->%lf\n",entre_triagem_atendimento);
+  //printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO ->%lf\n",entre_triagem_atendimento);
 
   //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
   printf("--MQ--\n");
@@ -438,7 +434,16 @@ void trabalho_doc(int i){
   stats->id_doutores[i]=-1;
 
   pthread_mutex_unlock(&stats->mutex);
-  kill(pid,SIGUSR1);
+  //kill(pid,SIGUSR1);
+  /* afinal tmb tenho de escrever o doutores log olha o quee diz no enunciado
+  "Cada um dos processos trabalha durante um período de tempo correspondente a
+um turno (parâmetro “SHIFT_LENGTH”, ver 3.5), ao fim do qual termina o
+paciente que tem em mãos e sai. O processo principal deve detectar este evento,
+registá-lo no log e iniciar um novo processo doutor."
+
+
+  sprintf(towrite,"Acabou turno do doutor %d \n",pid);
+  */
   sem_post(doutoresFim);
 
   printf("------------------ATENDIMENTO_FIM-----------------\n");
@@ -476,12 +481,12 @@ void* substituirDoutor (void *id){
 
     for(a=0;a<conf.n_doutores;a++){
       if(stats->id_doutores[a]==-1){
-        printf("encontrei doutor morto\n");
+        //printf("encontrei doutor morto\n");
         if ((novo = fork()) < 0) {
           perror("fork");
           exit(1);
         }else if (novo == 0) {
-          printf("doutor novo\n");
+          //printf("doutor novo\n");
 
           trabalho_doc(a);
         }
@@ -500,8 +505,6 @@ void* substituirDoutor (void *id){
 
 
 void criar_threads(){
-  printf("criar threads\n");
-
   int i=0;
   my_thread = (pthread_t*)malloc((conf.triagem+2)*sizeof(pthread_t));
   id_threads = malloc(sizeof(int)*conf.triagem+2);
