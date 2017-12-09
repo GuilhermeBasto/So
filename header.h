@@ -57,6 +57,8 @@ typedef struct Estatisticas{
     int tempo_total;
     int teste;
     pid_t id_doutores[20];
+    pthread_mutex_t mutex;
+
 }Estatisticas;
 
 //Estrutra da MQ
@@ -81,16 +83,13 @@ struct msqid_ds buf;
 
 
 //thread_mutex para controlar a escrita da estatistica na memoria partilhada
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexListaLigada = PTHREAD_MUTEX_INITIALIZER;
 
 //Semafora para controlar quantos doutores ja acabaram o turno.
-//struct msqid_ds buf
-
 sem_t *doutoresFim;
 sem_t *Triagem;
 sem_t *Atendimento;
 Lista destroi_lista(Lista lista);
 void destroi_memoria_partilhada();
 void cria_pipe();
-void* triagem(void* A);
+void* triagem(void* id);

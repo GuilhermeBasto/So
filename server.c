@@ -57,7 +57,7 @@ void cleanup() {
   sem_destroy(Atendimento);
   //Elimina mutexs
 
-  pthread_mutex_destroy(&mutex);
+  pthread_mutex_destroy(&stats->mutex);
   pthread_mutex_destroy(&mutexListaLigada);
   destroi_memoria_partilhada();
   //fechar pipe
@@ -76,7 +76,7 @@ void termina(int sign){
   exit(0);
 }
 void print_stats(int sign){
-  pthread_mutex_lock(&mutex);
+  pthread_mutex_lock(&stats->mutex);
   printf("\n--------ESTATISTICAS-----\n");
 	printf("NUMERO PACIENTES TRIADOS: %d\n",stats->n_pacientes_triados);
 	printf("NUMERO PACIENTES ATENDIDOS: %d\n",stats->n_pacientes_atendidos);
@@ -84,7 +84,7 @@ void print_stats(int sign){
 	printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO: %d\n",stats->t_entre_triagem_atendimento);
   printf("TEMPO TOTAL: %d\n",stats->tempo_total);
 	printf("--------------FIM---------------\n\n");
-  pthread_mutex_unlock(&mutex);
+  pthread_mutex_unlock(&stats->mutex);
 }
 
 void criar_memoria_partilhada(){
@@ -129,7 +129,6 @@ void cria_mq(){
   }
   else
   printf("Message Queue criada\n");
-  printf("is mq depois de criar%d\n",mq_id );
 }
 
 char *my_itoa(int num, char *str){
@@ -237,7 +236,6 @@ void* le_pipe(void *N){
 
       if(FD_ISSET(fd,&read_set)){
           read(fd,buf,sizeof(buf));
-          printf("buf->%s\n",buf );
           aux=strtok(buf,"\n");
           if(isalpha(aux[0])){
             if (strcmp(strtok(aux,"="),"TRIAGE")!=0){
@@ -256,23 +254,22 @@ void* le_pipe(void *N){
               //printf("paciente %s inserido com sucesso!\n",p.nome);
               i++;
             }else{
-              printf("altera threads\n");
+              printf("Alterar threads\n");
               nova_thread=atoi(strtok(NULL,"\n"));
-              printf("threads -> %d\n",nova_thread );
               if(nova_thread<conf.triagem){
                 id_threads=realloc(id_threads,(nova_thread+2));
                 my_thread=realloc(my_thread,(nova_thread+2));
-                for (int x=conf.triagem+2+nova_thread;x>nova_thread+2;x--){
+                if(nova_thread!=1){
+                for (int x=(conf.triagem+nova_thread+2);x>=nova_thread+2;x--){
                     pthread_cancel(my_thread[x]);
                   }
+                }
               }
               else{
-                printf("aqui\n");
                 id_threads=realloc(id_threads,(nova_thread+2));
                 my_thread=realloc(my_thread,(nova_thread+2));
                 for (int x=conf.triagem+2;x<nova_thread+2;x++){
                   if(pthread_create(&my_thread[x],NULL,triagem,&id_threads[x])!=0){
-                    printf("cria triage\n" );
                     perror ("pthread_create error");
                   }
                 }
@@ -281,7 +278,6 @@ void* le_pipe(void *N){
           }
           }
           else{
-            printf("aqui\n" );
             nome=strtok(buf," ");
             pessoas=atoi(nome);
             triage=atoi(strtok(NULL, " "));
@@ -296,6 +292,7 @@ void* le_pipe(void *N){
               p.temp_atendimento=atendimento;
               p.prioridade=prioridade;
               p.n_chegada=i;
+              printf("nome->%s\n",p.nome );
               //printf("%s %d %d %d\n",p.nome,p.temp_triagem,p.temp_atendimento,p.prioridade );
               inserir_fila(&p,fila_espera);
               sem_post(Triagem);
@@ -317,27 +314,18 @@ void ver_MQ(){
 
   int num_msg;
   int aux=conf.max_fila;
-  printf("COMFIG%d\n",aux );
 
   msq= msgctl(mq_id, IPC_STAT, &buf);
   num_msg = buf.msg_qnum;
   printf("NUMERO MSG ->%d\n",num_msg );
-  printf("COND ->%.0f\n",((float)aux*(float)0.8) );
   int conta=(float)aux*(float)0.8;
-  printf("Conta%d\n",conta );
   if ((num_msg >= conta) && stats->teste < 1){
     id=fork();
-    printf("PID NOVO \n");
+    printf("Doutor [%d] Extra \n",getpid());
+    pthread_mutex_lock(&stats->mutex);
     stats->id_doutores[conf.n_doutores]=id;
     stats->teste++;
-  }
-  if (stats->teste == 1 && num_msg<conta){
-      printf("MATAR A MAIS\n" );
-      waitpid(stats->id_doutores[conf.n_doutores],NULL,-2);
-        stats->teste--;
-  }
-  else{
-    printf("Não é perciso nada!!!\n" );
+    pthread_mutex_unlock(&stats->mutex);
   }
 
 }
@@ -350,18 +338,19 @@ void delete(){
     num_msg = buf.msg_qnum;
     printf("NUMERO MSG ->%d\n",num_msg );
     int conta=(float)aux*(float)0.8;
-    printf("Conta%d\n",conta );
-    printf("TESTE STATS%d\n",stats->teste );
     if (num_msg<=conta){
         if(stats->teste>0){
-          printf("MATAR A MAIS\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n" );
-          waitpid(stats->id_doutores[conf.n_doutores],NULL,-2);
+          pthread_mutex_lock(&stats->mutex);
+          printf("Matar Doutor [%d] Extra  \n",getpid());
+          waitpid(stats->id_doutores[conf.n_doutores],NULL,0);
           stats->teste--;
+          pthread_mutex_unlock(&stats->mutex);
       }
     }
 }
 //Nesta função uma thread de cada vez (&mutexListaLigad vai ao primeiro elemento da lista e envia a estrutra para a MQ);
-void* triagem(void* A){
+void* triagem(void* id){
+  int* i=(int*) id;
 
   pthread_mutex_lock(&mutexListaLigada);
   Lista aux,next;
@@ -372,22 +361,17 @@ void* triagem(void* A){
   while (1) {
 
     sem_wait(Triagem);
+    printf("ID THREAD->%d\n",id_threads[*i]);
     aux=fila_espera;
     next = aux->next;
     printf("----------TRIAGEM-------------\n");
     if(next){
-
-      printf("Paciente->%s\n",next->paciente.nome);
-
-
-      //printf("recebe->%s\n",mymsg.paciente.nome);
       mymsg.mtype=5;
       strcpy(mymsg.nome,next->paciente.nome);
       mymsg.temp_triagem=next->paciente.temp_triagem;
       mymsg.temp_atendimento=next->paciente.temp_atendimento;
-      printf("nome ->%s\n",mymsg.nome);
+
       //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
-      printf("recebe->%s\n",mymsg.nome);
       msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
       ver_MQ();
       //printf("Paciente-> %s %d %d\n",mymsg.paciente.nome,mymsg.paciente.temp_triagem,mymsg.paciente.temp_atendimento);
@@ -409,7 +393,6 @@ void trabalho_doc(int i){
 
   printf("------------------ATENDIMENTO-----------------\n");
   pid_t pid = getpid();
-  printf("antes MQ\n" );
   msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), 0, 0);
   delete();
   //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
@@ -425,13 +408,13 @@ void trabalho_doc(int i){
     sleep(mymsg.temp_atendimento);
   }
   printf("Doutor %d acabou\n", pid);
-  pthread_mutex_lock(&mutex);
+  pthread_mutex_lock(&stats->mutex);
   stats->tempo_total+=(mymsg.temp_atendimento+mymsg.temp_triagem);
   stats->n_pacientes_atendidos++;
   stats->id_doutores[i]=-1;
 
-  pthread_mutex_unlock(&mutex);
-    sem_post(doutoresFim);
+  pthread_mutex_unlock(&stats->mutex);
+  sem_post(doutoresFim);
 
   printf("------------------ATENDIMENTO_FIM-----------------\n");
 
@@ -447,13 +430,12 @@ void criar_doutores(){
       perror("fork");
       exit(1);
     }else if (id == 0) {
-      printf("----------filho-------------\n");
       trabalho_doc(i);
     }
     else{
-      printf("----------pai-------------\n");
-
+      pthread_mutex_lock(&stats->mutex);
       stats->id_doutores[i]=id;
+      pthread_mutex_unlock(&stats->mutex);
     }
   }
 }
@@ -479,8 +461,9 @@ void* substituirDoutor (void *id){
           trabalho_doc(a);
         }
         else{
-          //printf("--->adicionei um doc\n");
+          pthread_mutex_lock(&stats->mutex);
           stats->id_doutores[a]=novo;
+          pthread_mutex_unlock(&stats->mutex);
           break;
         }
       }
@@ -499,12 +482,10 @@ void criar_threads(){
   id_threads = malloc(sizeof(int)*conf.triagem+2);
   //cria thread para estar a espera do pipe
   if(pthread_create(&my_thread[0],NULL,le_pipe,&id_threads[0])!=0){
-    printf("aqui\n" );
     perror ("pthread_create error");
   }
   //criar a thread responsavel por criar novos doutores quando uns acabam
   if(pthread_create(&my_thread[1],NULL,substituirDoutor,&id_threads[0])!=0){
-    printf("aqui2\n" );
     perror ("pthread_create error");
   }
   id_threads[1]=0;
@@ -526,6 +507,9 @@ void inicio(){
 
   fila_espera=cria_lista();
   criar_memoria_partilhada();
+  pthread_mutexattr_t mattr;
+	pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+  pthread_mutex_init(&stats->mutex, &mattr);
   sem_unlink("doutoresFim");
   doutoresFim=sem_open("doutoresFim",O_CREAT| O_EXCL,0777,0);
   sem_unlink("Triagem");
@@ -533,8 +517,11 @@ void inicio(){
   sem_unlink("Atendimento");
   Atendimento=sem_open("Atendimento",O_CREAT| O_EXCL,0777,0);
 
+
   criar_doutores();
   criar_threads();
+  system("clear");
+  printf("------------------------------------------------------------\n");
   while (wait(NULL)!=-1);
 }
 
