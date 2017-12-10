@@ -531,8 +531,8 @@ void criar_threads(){
 void inicio(){
   signal(SIGINT,termina);
   signal(SIGUSR1,print_stats);
-  cria_pipe();
   le_config(&conf);
+  cria_pipe();
   cria_mq();
   fila_espera=cria_lista();
   criar_memoria_partilhada();
