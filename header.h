@@ -98,7 +98,30 @@ pthread_mutex_t mutexListaLigada = PTHREAD_MUTEX_INITIALIZER;
 sem_t *doutoresFim;
 sem_t *Triagem;
 sem_t *Atendimento;
-Lista destroi_lista(Lista lista);
+/*----------------------------------------------------------------------------
+  Funções
+-----------------------------------------------------------------------------*/
+void print_conf(Config *conf);
+void le_config(Config *conf);
+void cleanup();
+void termina(int sign);
+void print_stats(int sign);
+void criar_memoria_partilhada();
 void destroi_memoria_partilhada();
 void cria_pipe();
+void cria_mq();
+void destroi_mq();
+char *my_itoa(int num, char *str);
+Lista cria_lista();
+Lista destroi_lista(Lista lista);
+int inserir_fila(Paciente *p,Lista fila_espera);
+void imprime_fila(Lista aux);
+void* le_pipe(void *N);
+void ver_MQ();
+void delete();
 void* triagem(void* id);
+void trabalho_doc(int i);
+void criar_doutores();
+void* substituirDoutor (void *id);
+void criar_threads();
+void inicio();

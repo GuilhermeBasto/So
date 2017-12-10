@@ -35,8 +35,7 @@ void cleanup() {
     wait(NULL);
     i++;
   }
-  //elimina
-  msgctl(mq_id, IPC_RMID, 0);
+  destroi_mq();
   //Elimina semáforos
   sem_unlink("doutoresFim");
   sem_destroy(doutoresFim);
@@ -98,9 +97,6 @@ void destroi_memoria_partilhada(){
   }
   else
   perror("Destroindo memoria partilhada\n");
-
-
-
 }
 
 
@@ -118,6 +114,13 @@ void cria_mq(){
   }
   else
   printf("Message Queue criada\n");
+}
+void destroi_mq(){
+  if((mq_id = msgctl(mq_id, IPC_RMID, 0))<0){
+    perror("Message Queue error");
+  }
+  else
+  printf("Message Queue destroida\n");
 }
 
 char *my_itoa(int num, char *str){
@@ -320,7 +323,12 @@ void ver_MQ(){
   printf("NUMERO MSG ->%d\n",num_msg );
   int conta=(float)aux*(float)0.8;
   if ((num_msg >= conta) && stats->teste < 1){
-    id=fork();
+    if ((id= fork()) < 0) {
+      perror("fork");
+      exit(1);
+    }else if (id == 0) {
+      trabalho_doc(conf.n_doutores);
+    }
     printf("Doutor [%d] Extra \n",getpid());
     pthread_mutex_lock(&stats->mutex);
     stats->id_doutores[conf.n_doutores]=id;
@@ -356,10 +364,6 @@ void* triagem(void* id){
   pthread_mutex_lock(&mutexListaLigada);
   Lista aux,next;
 
-
-  //Mymsg mymsg;
-
-
   while (1) {
 
     sem_wait(Triagem);
@@ -377,7 +381,7 @@ void* triagem(void* id){
       strcpy(mymsg.nome,next->paciente.nome);
       mymsg.temp_triagem=next->paciente.temp_triagem;
       mymsg.temp_atendimento=next->paciente.temp_atendimento;
-      mymsg.antes_triagem=antes_triagem;
+      mymsg.antes_triagem=antes_triagem;//msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
       pthread_mutex_lock(&stats->mutex);
       stats->n_pacientes_triados++;
       stats->t_antes_triagem=antes_triagem;
@@ -413,8 +417,6 @@ void trabalho_doc(int i){
   end=clock();
   entre_triagem_atendimento=((double) (end - start)) / CLOCKS_PER_SEC;
   //printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO ->%lf\n",entre_triagem_atendimento);
-
-  //msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
   printf("--MQ--\n");
   printf("Paciente-> %s %d %d\n",mymsg.nome,mymsg.temp_triagem,mymsg.temp_atendimento);
   printf("Doutor %d comecou a trabalhar\n",pid);
@@ -532,7 +534,6 @@ void inicio(){
   cria_pipe();
   le_config(&conf);
   cria_mq();
-
   fila_espera=cria_lista();
   criar_memoria_partilhada();
   pthread_mutexattr_t mattr;
@@ -544,8 +545,6 @@ void inicio(){
   Triagem=sem_open("Triagem",O_CREAT| O_EXCL,0777,0);
   sem_unlink("Atendimento");
   Atendimento=sem_open("Atendimento",O_CREAT| O_EXCL,0777,0);
-
-
   criar_doutores();
   criar_threads();
   system("clear");
