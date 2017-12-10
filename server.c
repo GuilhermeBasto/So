@@ -1,3 +1,4 @@
+
 #include "header.h"
 //gcc -o main main.c -lpthread
 void print_conf(Config *conf){
@@ -256,7 +257,6 @@ void* le_pipe(void *N){
                 if(nova_thread!=1){
                 for (int x=(conf.triagem+nova_thread+2);x>=nova_thread+2;x--){
                   /* escrever fim das threads de TRIAGEM
-
                   sprintf(towrite,"Thread %d acabou \n",id_threads[x]);
                   */
                     pthread_cancel(my_thread[x]);
@@ -269,7 +269,6 @@ void* le_pipe(void *N){
                 for (int x=conf.triagem+2;x<nova_thread+2;x++){
 
                     /* escrever inicio das threads de TRIAGEM
-
                     sprintf(towrite,"Thread %d começou \n",id_threads[x]);
                     */
                   if(pthread_create(&my_thread[x],NULL,triagem,&id_threads[x])!=0){
@@ -442,8 +441,6 @@ void trabalho_doc(int i){
 um turno (parâmetro “SHIFT_LENGTH”, ver 3.5), ao fim do qual termina o
 paciente que tem em mãos e sai. O processo principal deve detectar este evento,
 registá-lo no log e iniciar um novo processo doutor."
-
-
   sprintf(towrite,"Acabou turno do doutor %d \n",pid);
   */
   sem_post(doutoresFim);
@@ -531,6 +528,7 @@ void criar_threads(){
 void inicio(){
   signal(SIGINT,termina);
   signal(SIGUSR1,print_stats);
+  signal(SIGTSTP,SIG_IGN);
   le_config(&conf);
   cria_pipe();
   cria_mq();
