@@ -29,9 +29,20 @@ void le_config(Config *conf){
 void cleanup() {
   int i=0;
 
+
+  old_size = size;
+  size =charswriten;
+  if ((wstats = mremap(wstats, old_size, size+1, MREMAP_MAYMOVE)) == MAP_FAILED){
+    perror("Error extending mapping");
+    close(slog);
+    exit(1);
+  }
+  strcat(wstats,"\n");
+  munmap(wstats,size);
   for(int i=0;i<conf.triagem+2;i++){
     pthread_cancel(my_thread[i]);
   }
+
   while(i<conf.n_doutores){
     wait(NULL);
     i++;
@@ -46,14 +57,14 @@ void cleanup() {
   sem_destroy(Atendimento);
   //Elimina mutexs
 
-  pthread_mutex_destroy(&stats->mutex);
+  pthread_mutex_destroy(&stats->mutex[0]);
+  pthread_mutex_destroy(&stats->mutex[1]);
   pthread_mutex_destroy(&mutexListaLigada);
   destroi_memoria_partilhada();
   //fechar pipe
   unlink(PIPE_NAME);
   close(fd);
-  free(id_threads);
-  free(my_thread);
+
   destroi_lista(fila_espera);
 }
 
@@ -65,15 +76,15 @@ void termina(int sign){
   exit(0);
 }
 void print_stats(int sign){
-  pthread_mutex_lock(&stats->mutex);
+  pthread_mutex_lock(&stats->mutex[0]);
   printf("\n--------ESTATISTICAS-----\n");
-	printf("NUMERO PACIENTES TRIADOS: %d\n",stats->n_pacientes_triados);
-	printf("NUMERO PACIENTES ATENDIDOS: %d\n",stats->n_pacientes_atendidos);
-	printf("TEMPO ANTES DE TRIAGEM: %lf\n",stats->t_antes_triagem);
-	printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO: %lf\n",stats->t_entre_triagem_atendimento);
+  printf("NUMERO PACIENTES TRIADOS: %d\n",stats->n_pacientes_triados);
+  printf("NUMERO PACIENTES ATENDIDOS: %d\n",stats->n_pacientes_atendidos);
+  printf("TEMPO ANTES DE TRIAGEM: %lf\n",stats->t_antes_triagem);
+  printf("TEMPO ENTRE TRIAGEM E ATENDIMENTO: %lf\n",stats->t_entre_triagem_atendimento);
   printf("TEMPO TOTAL: %lf\n",stats->tempo_total);
-	printf("--------------FIM---------------\n\n");
-  pthread_mutex_unlock(&stats->mutex);
+  printf("--------------FIM---------------\n\n");
+  pthread_mutex_unlock(&stats->mutex[0]);
 }
 
 void criar_memoria_partilhada(){
@@ -251,29 +262,102 @@ void* le_pipe(void *N){
             }else{
               printf("Alterar threads\n");
               nova_thread=atoi(strtok(NULL,"\n"));
-              if(nova_thread<conf.triagem){
+              if(nova_thread<=conf.triagem){
                 id_threads=realloc(id_threads,(nova_thread+2));
                 my_thread=realloc(my_thread,(nova_thread+2));
                 if(nova_thread!=1){
-                for (int x=(conf.triagem+nova_thread+2);x>=nova_thread+2;x--){
-                  /* escrever fim das threads de TRIAGEM
-                  sprintf(towrite,"Thread %d acabou \n",id_threads[x]);
-                  */
+                for (int x=(nova_thread+2);x>=nova_thread+2;x--){
+
                     pthread_cancel(my_thread[x]);
+                    pthread_mutex_lock(&stats->mutex[1]);
+                    char* towrite =(char*)malloc(200*sizeof(char));
+                    sprintf(towrite,"Thread %d acabou \n",id_threads[x]);
+                    //verificar se ainda pode escrever
+                    if(charswriten+strlen(towrite)<=size){
+                      charswriten+=strlen(towrite);
+                      strcat(wstats,towrite);
+                      //enviar informaçao para o mmf
+                      msync(wstats,size,MS_SYNC);
+                      printf("Escrevi o fim da thread na mmf\n");
+                      towrite[0]='\n';
+                    }
+                    //se nao tem espaço para escrever remapp
+                    else{
+                      printf("Remapping File !\n");
+                      old_size = size;
+                      size += sysconf(_SC_PAGE_SIZE);
+                      if (ftruncate(slog, size) != 0){
+                        perror("Error extending file");
+                        close(slog);
+                        exit(1);
+                      }
+                      if ((wstats = mremap(wstats, old_size, size, MREMAP_MAYMOVE)) == MAP_FAILED){
+                        perror("Error extending mapping");
+                        close(slog);
+                        exit(1);
+                      }
+
+                      charswriten+=strlen(towrite);
+                      strcat(wstats,towrite);
+                      //enviar informaçao para o mmf
+                      msync(wstats,size,MS_SYNC);
+                      printf("Escrevi o fim da thread na mmf\n");
+                      towrite[0]='\n';
+                    }
+
+                    pthread_mutex_unlock(&stats->mutex[1]);
+
                   }
+                conf.triagem=nova_thread;
                 }
               }
               else{
+                //aumenta
                 id_threads=realloc(id_threads,(nova_thread+2));
                 my_thread=realloc(my_thread,(nova_thread+2));
                 for (int x=conf.triagem+2;x<nova_thread+2;x++){
-
-                    /* escrever inicio das threads de TRIAGEM
-                    sprintf(towrite,"Thread %d começou \n",id_threads[x]);
-                    */
                   if(pthread_create(&my_thread[x],NULL,triagem,&id_threads[x])!=0){
                     perror ("pthread_create error");
                   }
+                  pthread_mutex_lock(&stats->mutex[1]);
+                  char* towrite =(char*)malloc(200*sizeof(char));
+                  sprintf(towrite,"Thread %d começou \n",id_threads[x]);
+                  //verificar se ainda pode escrever
+                  if(charswriten+strlen(towrite)<=size){
+                    charswriten+=strlen(towrite);
+                    strcat(wstats,towrite);
+                    //enviar informaçao para o mmf
+                    msync(wstats,size,MS_SYNC);
+                    printf("Escrevi o inicio da thread na mmf\n");
+                    towrite[0]='\n';
+                  }
+                  //se nao tem espaço para escrever remapp
+                  else{
+                    printf("Remapping File !\n");
+                    old_size = size;
+                    size += sysconf(_SC_PAGE_SIZE);
+                    if (ftruncate(slog, size) != 0){
+                      perror("Error extending file");
+                      close(slog);
+                      exit(1);
+                    }
+                    if ((wstats = mremap(wstats, old_size, size, MREMAP_MAYMOVE)) == MAP_FAILED){
+                      perror("Error extending mapping");
+                      close(slog);
+                      exit(1);
+                    }
+
+                    charswriten+=strlen(towrite);
+                    strcat(wstats,towrite);
+                    //enviar informaçao para o mmf
+                    msync(wstats,size,MS_SYNC);
+                    printf("Escrevi o inicio da thread na mmf\n");
+                    towrite[0]='\n';
+                  }
+
+                  pthread_mutex_unlock(&stats->mutex[1]);
+                  conf.triagem=nova_thread;
+
                 }
 
             }
@@ -329,32 +413,31 @@ void ver_MQ(){
       trabalho_doc(conf.n_doutores);
     }
     printf("Doutor [%d] Extra \n",getpid());
-    pthread_mutex_lock(&stats->mutex);
+    pthread_mutex_lock(&stats->mutex[0]);
     stats->id_doutores[conf.n_doutores]=id;
     stats->teste++;
-    pthread_mutex_unlock(&stats->mutex);
+    pthread_mutex_lock(&stats->mutex[0]);
   }
-
 }
 void delete(){
-    int msq;
-    int num_msg;
-    int aux=conf.max_fila;
-    if((msq = msgctl(mq_id, IPC_STAT, &buf))<0){
-      perror("Error msgctl");
+  int msq;
+  int num_msg;
+  int aux=conf.max_fila;
+  if((msq = msgctl(mq_id, IPC_STAT, &buf))<0){
+    perror("Error msgctl");
+  }
+  num_msg = buf.msg_qnum;
+  printf("NUMERO MSG ->%d\n",num_msg );
+  int conta=(float)aux*(float)0.8;
+  if (num_msg<=conta){
+    if(stats->teste>0){
+      pthread_mutex_lock(&stats->mutex[0]);
+      printf("Matar Doutor Extra\n");
+      waitpid(stats->id_doutores[conf.n_doutores],NULL,0);
+      stats->teste--;
+      pthread_mutex_unlock(&stats->mutex[0]);
     }
-    num_msg = buf.msg_qnum;
-    printf("NUMERO MSG ->%d\n",num_msg );
-    int conta=(float)aux*(float)0.8;
-    if (num_msg<=conta){
-        if(stats->teste>0){
-          pthread_mutex_lock(&stats->mutex);
-          printf("Matar Doutor Extra\n");
-          waitpid(stats->id_doutores[conf.n_doutores],NULL,0);
-          stats->teste--;
-          pthread_mutex_unlock(&stats->mutex);
-      }
-    }
+  }
 }
 //Nesta função uma thread de cada vez (&mutexListaLigad vai ao primeiro elemento da lista e envia a estrutra para a MQ);
 void* triagem(void* id){
@@ -381,35 +464,109 @@ void* triagem(void* id){
       mymsg.temp_triagem=next->paciente.temp_triagem;
       mymsg.temp_atendimento=next->paciente.temp_atendimento;
       mymsg.antes_triagem=antes_triagem;//msgrcv(mq_id, &mymsg,sizeof(mymsg)-sizeof(long), 0, 0);
-      pthread_mutex_lock(&stats->mutex);
+      pthread_mutex_lock(&stats->mutex[0]);
       stats->n_pacientes_triados++;
       stats->t_antes_triagem=antes_triagem;
-      pthread_mutex_unlock(&stats->mutex);
-      /* escrever os pacinete triados
+      pthread_mutex_unlock(&stats->mutex[0]);
+      /* escrever os pacinete triados na mmf*/
+
+      pthread_mutex_lock(&stats->mutex[1]);
+      char* towrite =(char*)malloc(200*sizeof(char));
       sprintf(towrite,"Paciente  %s Triado\n",mymsg.nome);
-      */
-      msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
-      ver_MQ();
-      aux->next=next->next;
-      free(next);
+      //verificar se ainda pode escrever
+      if(charswriten+strlen(towrite)<=size){
+        charswriten+=strlen(towrite);
+        strcat(wstats,towrite);
+        //enviar informaçao para o mmf
+        msync(wstats,size,MS_SYNC);
+        printf("Paciente  %s Triado\n",mymsg.nome);
+        towrite[0]='\n';
+      }
+      //se nao tem espaço para escrever remapp
+      else{
+        printf("Remapping File !\n");
+        old_size = size;
+        size += sysconf(_SC_PAGE_SIZE);
+        if (ftruncate(slog, size) != 0){
+          perror("Error extending file");
+          close(slog);
+          exit(1);
+        }
+        if ((wstats = mremap(wstats, old_size, size, MREMAP_MAYMOVE)) == MAP_FAILED){
+          perror("Error extending mapping");
+          close(slog);
+          exit(1);
+        }
 
-      sem_post(Atendimento);
-
+        charswriten+=strlen(towrite);
+        strcat(wstats,towrite);
+        //enviar informaçao para o mmf
+        msync(wstats,size,MS_SYNC);
+        printf("Escrevi o paciente triado na mmf\n");
+        towrite[0]='\n';
+      }
     }
+    pthread_mutex_unlock(&stats->mutex[1]);
 
-    printf("----------TRIAGEM_FIM-------------\n");
-    pthread_mutex_unlock(&mutexListaLigada);
+    msgsnd(mq_id,&mymsg,sizeof(Mymsg)-sizeof(long),0);
+    ver_MQ();
+    aux->next=next->next;
+    free(next);
+
+    sem_post(Atendimento);
+
   }
+
+  printf("----------TRIAGEM_FIM-------------\n");
+  pthread_mutex_unlock(&mutexListaLigada);
+
 }
 
 void trabalho_doc(int i){
   //printf("vou comecar o trabalho\n");
   sem_wait(Atendimento);
-  start=clock();
-
-
   printf("------------------ATENDIMENTO-----------------\n");
   pid_t pid = getpid();
+
+  start=clock();
+  pthread_mutex_lock(&stats->mutex[1]);
+  char* towrite =(char*)malloc(200*sizeof(char));
+  sprintf(towrite,"Inicio Doutor: %ld\n",(long)pid);
+  //verificar se ainda pode escrever
+  if(charswriten+strlen(towrite)<=size){
+    charswriten+=strlen(towrite);
+    strcat(wstats,towrite);
+    //enviar informaçao para o mmf
+    msync(wstats,size,MS_SYNC);
+    printf("Escrevi o inicio do doutor na mmf\n");
+    towrite[0]='\n';
+  }
+  //se nao tem espaço para escrever remapp
+  else{
+    printf("Remapping File !\n");
+    old_size = size;
+    size += sysconf(_SC_PAGE_SIZE);
+    if (ftruncate(slog, size) != 0){
+      perror("Error extending file");
+      close(slog);
+      exit(1);
+    }
+    if ((wstats = mremap(wstats, old_size, size, MREMAP_MAYMOVE)) == MAP_FAILED){
+      perror("Error extending mapping");
+      close(slog);
+      exit(1);
+    }
+
+    charswriten+=strlen(towrite);
+    strcat(wstats,towrite);
+    //enviar informaçao para o mmf
+    msync(wstats,size,MS_SYNC);
+    printf("Escrevi o inicio do doutor na mmf\n");
+    towrite[0]='\n';
+  }
+
+  pthread_mutex_unlock(&stats->mutex[1]);
+
 
   delete();
   msgrcv(mq_id, &mymsg,sizeof(Mymsg)-sizeof(long), -3, 0);
@@ -428,21 +585,52 @@ void trabalho_doc(int i){
     sleep(mymsg.temp_atendimento);
   }
   printf("Doutor %d acabou\n", pid);
-  pthread_mutex_lock(&stats->mutex);
+  pthread_mutex_lock(&stats->mutex[0]);
   stats->tempo_total+=(mymsg.temp_atendimento+mymsg.temp_triagem+mymsg.antes_triagem+entre_triagem_atendimento);
   stats->n_pacientes_atendidos++;
   stats->t_entre_triagem_atendimento=entre_triagem_atendimento;
   stats->id_doutores[i]=-1;
 
-  pthread_mutex_unlock(&stats->mutex);
+  pthread_mutex_unlock(&stats->mutex[0]);
   //kill(pid,SIGUSR1);
-  /* afinal tmb tenho de escrever o doutores log olha o quee diz no enunciado
-  "Cada um dos processos trabalha durante um período de tempo correspondente a
-um turno (parâmetro “SHIFT_LENGTH”, ver 3.5), ao fim do qual termina o
-paciente que tem em mãos e sai. O processo principal deve detectar este evento,
-registá-lo no log e iniciar um novo processo doutor."
-  sprintf(towrite,"Acabou turno do doutor %d \n",pid);
-  */
+  pthread_mutex_lock(&stats->mutex[1]);
+  sprintf(towrite,"Fim Doutor: %ld\n",(long)pid);
+  //verificar se ainda pode escrever
+  if(charswriten+strlen(towrite)<=size){
+    charswriten+=strlen(towrite);
+    strcat(wstats,towrite);
+    //enviar informaçao para o mmf
+    msync(wstats,size,MS_SYNC);
+    printf("Escrevi o fim do doutor na mmf\n");
+    towrite[0]='\n';
+  }
+  //se nao tem espaço para escrever remapp
+  else{
+    printf("Remapping File !\n");
+    old_size = size;
+    size += sysconf(_SC_PAGE_SIZE);
+    if (ftruncate(slog, size) != 0){
+      perror("Error extending file");
+      close(slog);
+      exit(1);
+    }
+    if ((wstats = mremap(wstats, old_size, size, MREMAP_MAYMOVE)) == MAP_FAILED){
+      perror("Error extending mapping");
+      close(slog);
+      exit(1);
+    }
+
+    charswriten+=strlen(towrite);
+    strcat(wstats,towrite);
+    //enviar informaçao para o mmf
+    msync(wstats,size,MS_SYNC);
+    printf("Escrevio fim do doutor na mmf\n");
+    towrite[0]='\n';
+  }
+
+  pthread_mutex_unlock(&stats->mutex[1]);
+
+
   sem_post(doutoresFim);
 
   printf("------------------ATENDIMENTO_FIM-----------------\n");
@@ -462,9 +650,9 @@ void criar_doutores(){
       trabalho_doc(i);
     }
     else{
-      pthread_mutex_lock(&stats->mutex);
+      pthread_mutex_lock(&stats->mutex[0]);
       stats->id_doutores[i]=id;
-      pthread_mutex_unlock(&stats->mutex);
+      pthread_mutex_unlock(&stats->mutex[0]);
     }
   }
 }
@@ -490,9 +678,9 @@ void* substituirDoutor (void *id){
           trabalho_doc(a);
         }
         else{
-          pthread_mutex_lock(&stats->mutex);
+          pthread_mutex_lock(&stats->mutex[0]);
           stats->id_doutores[a]=novo;
-          pthread_mutex_unlock(&stats->mutex);
+          pthread_mutex_unlock(&stats->mutex[0]);
           break;
         }
       }
@@ -524,7 +712,39 @@ void criar_threads(){
     }
   }
 }
+void mmf(){
 
+  slog = open("server.log", O_RDWR|O_CREAT|O_TRUNC,FILE_MODE);
+  if(slog<0){
+    printf("Error open file\n");
+    exit(1);
+  }
+  status=fstat(slog, &s);
+  if(status <0) {// To obtain file size
+    perror("Error in fstat");
+    exit(1);
+  }
+  size=s.st_size;
+  if((wstats=mmap(0,size+1,PROT_READ|PROT_WRITE, MAP_SHARED,slog,0))==(caddr_t)-1){
+    perror("Error in mmap\n");
+    exit(1);
+  }
+
+  old_size = size;
+  size += sysconf(_SC_PAGE_SIZE);
+
+  if (ftruncate(slog, size) != 0){
+    perror("Error extending file");
+    close(slog);
+    exit(1);
+  }
+
+  if ((wstats = mremap(wstats, old_size, size, MREMAP_MAYMOVE)) == MAP_FAILED){
+    perror("Error extending mapping");
+    close(slog);
+    exit(1);
+  }
+}
 void inicio(){
   signal(SIGINT,termina);
   signal(SIGUSR1,print_stats);
@@ -535,8 +755,11 @@ void inicio(){
   fila_espera=cria_lista();
   criar_memoria_partilhada();
   pthread_mutexattr_t mattr;
-	pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
-  pthread_mutex_init(&stats->mutex, &mattr);
+  pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+  pthread_mutex_init(&stats->mutex[0], &mattr);
+  pthread_mutex_init(&stats->mutex[1], &mattr);
+  mmf();
+
   sem_unlink("doutoresFim");
   doutoresFim=sem_open("doutoresFim",O_CREAT| O_EXCL,0777,0);
   sem_unlink("Triagem");
@@ -552,5 +775,5 @@ void inicio(){
 
 int main(int argc, char const *argv[]){
   inicio();
-  cleanup();
+  //cleanup();
 }

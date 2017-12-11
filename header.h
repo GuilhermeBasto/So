@@ -1,3 +1,4 @@
+#define _GNU_SOURCE 1
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -59,7 +60,7 @@ typedef struct Estatisticas{
     double tempo_total;
     int teste;
     pid_t id_doutores[20];
-    pthread_mutex_t mutex;
+    pthread_mutex_t mutex[2];
 
 }Estatisticas;
 
@@ -90,6 +91,17 @@ int fd;
 struct msqid_ds buf;
 clock_t start,end;
 double antes_triagem,entre_triagem_atendimento;
+//MMF
+int slog;
+char *wstats;
+int size;
+int charswriten=0;
+int exitstats=0;
+struct stat s;
+int status,pagesmapped=1;
+int old_size=0;
+long pidstats;
+
 
 //thread_mutex para controlar a escrita da estatistica na memoria partilhada
 pthread_mutex_t mutexListaLigada = PTHREAD_MUTEX_INITIALIZER;
