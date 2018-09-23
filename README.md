@@ -1,2 +1,2 @@
-# So_REPOSITORY
-projeto de so
+# So
+projeto de Sistemas Operativos
